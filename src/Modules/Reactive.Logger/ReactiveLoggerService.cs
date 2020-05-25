@@ -59,89 +59,72 @@ namespace Xpand.XAF.Modules.Reactive.Logger{
         }
 
 
-        public static IObservable<Unit> RefreshViewDataSource(this IObservable<ITraceEvent> events, XafApplication application){
-            if (application.GetPlatform()==Platform.Web){
-                return Observable.Empty<Unit>();
-            }
-            return application.WhenViewOnFrame(typeof(TraceEvent),ViewType.ListView)
-                .SelectMany(frame => {
-                    return events.Throttle(TimeSpan.FromSeconds(1))
-                        .TakeUntil(frame.WhenDisposingFrame())
-                        .DistinctUntilChanged(_ => _.TraceKey())
-                        .ObserveOn(SynchronizationContext.Current)
-                        .SelectMany(e => {
-                            if (e.Method != nameof(RefreshViewDataSource)){
-                                frame?.View?.RefreshDataSource();
-                                return e.ReturnObservable().ToUnit();
-                            }
+        public static IObservable<Unit> RefreshViewDataSource(this IObservable<ITraceEvent> events, XafApplication application) =>
+	        application.GetPlatform() == Platform.Web
+		        ? Observable.Empty<Unit>()
+		        : application.WhenViewOnFrame(typeof(TraceEvent), ViewType.ListView)
+			        .SelectMany(frame => events.Throttle(TimeSpan.FromSeconds(1))
+				        .TakeUntil(frame.WhenDisposingFrame())
+				        .DistinctUntilChanged(_ => _.TraceKey())
+				        .ObserveOn(SynchronizationContext.Current)
+				        .SelectMany(e => {
+					        if (e.Method != nameof(RefreshViewDataSource)){
+						        frame?.View?.RefreshDataSource();
+						        return e.ReturnObservable();
+					        }
 
-                            return Observable.Never<Unit>();
-                        });
-                }).ToUnit()
-                .TraceLogger()
-                .Retry(application);
-        }
+					        return Observable.Never<ITraceEvent>();
+				        }))
+			        .TraceLogger(_ => _.Message)
+			        .ToUnit()
+			        .Retry(application);
+
         [PublicAPI]
-        public static IObservable<TraceEvent> WhenTraceEvent<TLocation>(this XafApplication application, Expression<Func<TLocation, object>> expression,
-            RXAction rxAction = RXAction.All){
+        public static IObservable<TraceEvent> WhenTraceEvent<TLocation>(this XafApplication application, Expression<Func<TLocation, object>> expression, RXAction rxAction = RXAction.All){
             var name = expression.GetMemberInfo().Name;
             return application.WhenTraceEvent(typeof(TLocation), rxAction).Where(_ => _.Method == name);
         }
 
-        public static IObservable<ITraceEvent> WhenTraceOnNext(this XafApplication application, params string[] methods){
-            return application.WhenTraceOnNext(location: null, methods);
-        }
+        public static IObservable<ITraceEvent> WhenTraceOnNext(this XafApplication application, params string[] methods) => application
+	        .WhenTraceOnNext(null, methods);
 
-        public static IObservable<ITraceEvent> WhenTraceOnNext(this XafApplication application, Type location = null,params string[] methods){
-            return application.WhenTrace(location, RXAction.OnNext, methods);
-        }
+        public static IObservable<ITraceEvent> WhenTraceOnNext(this XafApplication application, Type location = null,params string[] methods) => application.WhenTrace(location, RXAction.OnNext, methods);
 
-        public static IObservable<ITraceEvent> WhenTrace(this XafApplication application, Type location = null,RXAction rxAction = RXAction.All, params string[] methods){
-            return application.Modules.ToTraceSource().ToObservable().SelectMany(_ =>
-                _.traceSource.Listeners.OfType<ReactiveTraceListener>().ToObservable().SelectMany(listener => listener.EventTrace))
-                .When(location, rxAction,methods);
-        }
+        public static IObservable<ITraceEvent> WhenTrace(this XafApplication application, Type location = null,RXAction rxAction = RXAction.All, params string[] methods) =>
+	        application.Modules.ToTraceSource().ToObservable().SelectMany(_ =>
+			        _.traceSource.Listeners.OfType<ReactiveTraceListener>().ToObservable().SelectMany(listener => listener.EventTrace))
+		        .When(location, rxAction,methods);
 
-        public static IObservable<ITraceEvent> When(this IObservable<ITraceEvent> source, Type location,
-            RXAction rxAction,params string[] methods){
-
-            return source.Where(_ => location == null || _.Location == location.Name)
-                .Where(_ => !methods.Any() || methods.Contains(_.Method))
-                .Where(_ => rxAction == RXAction.All || _.RXAction.HasAnyFlag(rxAction));
-        }
+        public static IObservable<ITraceEvent> When(this IObservable<ITraceEvent> source, Type location, RXAction rxAction,params string[] methods) =>
+	        source.Where(_ => location == null || _.Location == location.Name)
+		        .Where(_ => !methods.Any() || methods.Contains(_.Method))
+		        .Where(_ => rxAction == RXAction.All || _.RXAction.HasAnyFlag(rxAction));
 
         [PublicAPI]
-        public static IObservable<TraceEvent> WhenTraceOnSubscribeEvent(this XafApplication application,
-            params string[] methods){
-            return application.WhenTraceEvent(null, RXAction.Subscribe, methods);
-        }
+        public static IObservable<TraceEvent> WhenTraceOnSubscribeEvent(this XafApplication application, params string[] methods) =>
+	        application.WhenTraceEvent(null, RXAction.Subscribe, methods);
 
-        public static IObservable<TraceEvent> WhenTraceOnNextEvent(this XafApplication application,params string[] methods){
-            return application.WhenTraceOnNextEvent(location: null, methods);
-        }
+        public static IObservable<TraceEvent> WhenTraceOnNextEvent(this XafApplication application,params string[] methods) => application
+	        .WhenTraceOnNextEvent(null, methods);
 
-        public static IObservable<TraceEvent> WhenTraceOnNextEvent(this XafApplication application, Type location = null,params string[] methods){
-            return application.WhenTraceEvent(location, RXAction.OnNext, methods);
-        }
+        public static IObservable<TraceEvent> WhenTraceOnNextEvent(this XafApplication application, Type location = null,params string[] methods) => application
+	        .WhenTraceEvent(location, RXAction.OnNext, methods);
 
         [PublicAPI]
-        public static IObservable<TraceEvent> WhenTraceEvent(this XafApplication application,Type location=null,RXAction rxAction=RXAction.All,params string[] methods){
-            return SavedTraceEvent.When(location, rxAction,methods).Cast<TraceEvent>();
+        public static IObservable<TraceEvent> WhenTraceEvent(this XafApplication application,Type location=null,RXAction rxAction=RXAction.All,params string[] methods) => 
+	        SavedTraceEvent.When(location, rxAction,methods).Cast<TraceEvent>();
 
-        }
-        internal static IObservable<TSource> TraceLogger<TSource>(this IObservable<TSource> source, string name = null, Action<string> traceAction = null,
-            ObservableTraceStrategy traceStrategy = ObservableTraceStrategy.All,[CallerMemberName] string memberName = "",
-            [CallerFilePath] string sourceFilePath = "",[CallerLineNumber] int sourceLineNumber = 0){
-            return source.Trace(name,ReactiveLoggerModule.TraceSource,traceAction,traceStrategy,memberName,sourceFilePath,sourceLineNumber);
-        }
+        internal static IObservable<TSource> TraceLogger<TSource>(this IObservable<TSource> source, Func<TSource,string> messageFactory=null,string name = null, Action<string> traceAction = null,
+	        Func<Exception,string> errorMessageFactory=null, ObservableTraceStrategy traceStrategy = ObservableTraceStrategy.All,
+	        [CallerMemberName] string memberName = "",[CallerFilePath] string sourceFilePath = "",[CallerLineNumber] int sourceLineNumber = 0) =>
+	        source.Trace(name, ReactiveLoggerModule.TraceSource,messageFactory,errorMessageFactory, traceAction, traceStrategy, memberName,sourceFilePath,sourceLineNumber);
 
 
-        public static IEnumerable<(ModuleBase module, TraceSource traceSource)> ToTraceSource(this IEnumerable<ModuleBase> moduleList){
-            return moduleList
-                .SelectMany(m => m.GetType().GetProperties(BindingFlags.Static | BindingFlags.Public)
-                    .Where(info => typeof(TraceSource).IsAssignableFrom(info.PropertyType))
-                    .Select(info => (module:m,traceSource:(TraceSource)info.GetValue(m)))).Where(o => o.traceSource!=null);
-        }
+        public static IEnumerable<(ModuleBase module, TraceSource traceSource)> ToTraceSource(this IEnumerable<ModuleBase> moduleList) =>
+	        moduleList
+		        .SelectMany(m => m.GetType().GetProperties(BindingFlags.Static | BindingFlags.Public)
+			        .Where(info => typeof(TraceSource).IsAssignableFrom(info.PropertyType))
+			        .Select(info => (module:m,traceSource:(TraceSource)info.GetValue(m)))).Where(o => o.traceSource!=null);
 
         private static IObservable<Unit> RegisterListener(this XafApplication application,
             ReactiveTraceListener traceListener){
@@ -179,26 +162,23 @@ namespace Xpand.XAF.Modules.Reactive.Logger{
         }
 
         public static void TraceMessage(this TraceSource traceSource, string value,TraceEventType traceEventType=TraceEventType.Information){
-            var traceEventMessage = new TraceEventMessage {
-                Location = nameof(ReactiveLoggerService), Method = nameof(TraceMessage), RXAction = RXAction.None, Value = value,
-                TraceEventType = traceEventType
-            };
             if (traceSource.Switch.Level != SourceLevels.Off){
-                traceSource.TraceEventMessage(traceEventMessage);
+	            var traceEventMessage = new TraceEventMessage {
+		            Location = nameof(ReactiveLoggerService), Method = nameof(TraceMessage), RXAction = RXAction.None, Value = value,
+		            TraceEventType = traceEventType
+	            };
+	            traceSource.TraceEventMessage(traceEventMessage);
             }
         }
 
-        public static void TraceEventMessage(this TraceSource traceSource,ITraceEvent traceEvent){
-            traceSource.TraceEvent(TraceEventType.Information, traceSource.GetHashCode(), $"{traceEvent.Location}.{traceEvent.Method}({traceEvent.Line}): {traceEvent.Action}({traceEvent.Value})");
-        }
+        public static void TraceEventMessage(this TraceSource traceSource,ITraceEvent traceEvent) => traceSource
+	        .TraceEvent(TraceEventType.Information, traceSource.GetHashCode(), $"{traceEvent.Location}.{traceEvent.Method}({traceEvent.Line}): {traceEvent.Action}({traceEvent.Value})");
 
-        private static IObservable<TraceEvent> SaveEvent(this IObservable<ITraceEvent> events, XafApplication application){
-            return events.Select(_ => _)
-                .Buffer(TimeSpan.FromSeconds(3)).WhenNotEmpty()
-                .SelectMany(list => application.ObjectSpaceProvider.ToObjectSpace().SelectMany(space => space.SaveTraceEvent(list)))
-                .Retry(application)
-                ;
-        }
+        private static IObservable<TraceEvent> SaveEvent(this IObservable<ITraceEvent> events, XafApplication application) =>
+	        events.Select(_ => _)
+		        .Buffer(TimeSpan.FromSeconds(3)).WhenNotEmpty()
+		        .SelectMany(list => application.ObjectSpaceProvider.ToObjectSpace().SelectMany(space => space.SaveTraceEvent(list)))
+		        .Retry(application);
 
         public static IObservable<TraceEvent> SaveTraceEvent(this IObjectSpace objectSpace, IList<ITraceEvent> traceEventMessages){
             var lastEvent = objectSpace.GetObjectsQuery<TraceEvent>().OrderByDescending(_ => _.Timestamp).FirstOrDefault();

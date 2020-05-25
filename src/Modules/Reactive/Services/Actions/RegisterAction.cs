@@ -2,8 +2,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
-using System.Reactive.Concurrency;
-using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Reflection;
@@ -14,8 +12,6 @@ using DevExpress.Persistent.Base;
 using Fasterflect;
 using HarmonyLib;
 using JetBrains.Annotations;
-using Xpand.Extensions.Reactive.Transform;
-using Xpand.XAF.Modules.Reactive.Services.Controllers;
 
 namespace Xpand.XAF.Modules.Reactive.Services.Actions{
     [PublicAPI]
@@ -169,11 +165,6 @@ namespace Xpand.XAF.Modules.Reactive.Services.Actions{
                 }
                 var controller = (TController) Controller.Create(controllerType);
                 applicationModulesManager.ControllersManager.RegisterController(controller);
-                // return Observable.Create<TAction>(observer => {
-                //     TAction action = controller.Actions[id] as TAction;
-                //     observer.OnNext(action);
-                //     return Disposable.Empty;
-                // });
                 return _actionsSubject.Select(a => a).OfType<TAction>().Where(_ => _.Id == id);
             }
         }
@@ -190,6 +181,9 @@ namespace Xpand.XAF.Modules.Reactive.Services.Actions{
 
         private static Type NewControllerType<T>(string id) where T:Controller{
             var parent = typeof(T);
+            if (parent == typeof(ViewController)){
+
+            }
             return ActionsModule.DefineType($"{id}{parent.Name}", TypeAttributes.Public, parent).CreateType();
         }
     }
